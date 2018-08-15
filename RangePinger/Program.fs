@@ -52,17 +52,19 @@ let pingAdapterSubnet (adapter: AdapterInfo): unit =
 
 [<EntryPoint>]
 let main argv = 
-    Console.WriteLine("Select network adapter:")
+    Console.WriteLine("Available network adapters:")
 
     let adapterInfos = getAdapters() in
     displayAdapters(adapterInfos)
+
+    Console.Write("Select adapter to ping it's range: ")
 
     let num = ref 0
     if Int32.TryParse(Console.ReadLine(), num) then
         let index = !num - 1
         if index >= 0 && index < adapterInfos.Length then
             let selectedAdapter = adapterInfos.[index]
-            printfn "Selected: %s" selectedAdapter.Name
+            printfn "\nSelected: %s" selectedAdapter.Name
             pingAdapterSubnet selectedAdapter
             Console.WriteLine("Done!")
         else
