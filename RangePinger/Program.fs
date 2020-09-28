@@ -12,6 +12,8 @@ let EXIT_NORMAL = 0
 let EXIT_INCORRECT_PARAM = 1
 
 let NUM_ADDRESSES = 254
+let PREFIX_LEN = 24
+
 let PING_TIMEOUT = 2000
 
 /// Get network adapters information
@@ -24,7 +26,8 @@ let getAdapters () : AdapterInfo[] =
         let ip4Addr = ni.GetIPProperties().UnicastAddresses
                       |> Seq.find (fun addr ->
                         let family = addr.Address.AddressFamily in
-                        family = AddressFamily.InterNetwork)
+                        family = AddressFamily.InterNetwork &&
+                        addr.PrefixLength = PREFIX_LEN)
                                
         {
             Name = ni.Name;
