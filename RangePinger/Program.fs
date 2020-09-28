@@ -1,20 +1,36 @@
 ﻿open System
+open System.Net
 open System.Net.NetworkInformation
 open System.Net.Sockets
 
 /// Network adapter information
 type AdapterInfo = {
     Name: string;
-    Address: string
+    DisplayAddress: string;
+    PrefixLength: int;
+    AddressValue: int
 }
 
 let EXIT_NORMAL = 0
 let EXIT_INCORRECT_PARAM = 1
 
-let NUM_ADDRESSES = 254
-let PREFIX_LEN = 24
-
 let PING_TIMEOUT = 2000
+
+/// Convert big-endian IP address values array to integer
+let bigEndianIp4ByteArrayToInt (ip4Bytes : byte[]) : int =
+    (int ip4Bytes.[0] <<< 24) |||
+    (int ip4Bytes.[1] <<< 16) |||
+    (int ip4Bytes.[2] <<< 8) |||
+    (int 1)
+
+/// Convert IP address value to big-endian array
+let intIp4ToBigEndianArray (ip4Value : int) : byte[] =
+    [|
+        byte ((ip4Value >>> 24) &&& 0xff);
+        byte ((ip4Value >>> 16) &&& 0xff);
+        byte ((ip4Value >>> 8) &&& 0xff);
+        byte (ip4Value &&& 0xff)
+    |]
 
 /// Get network adapters information
 let getAdapters () : AdapterInfo[] =
@@ -26,27 +42,36 @@ let getAdapters () : AdapterInfo[] =
         let ip4Addr = ni.GetIPProperties().UnicastAddresses
                       |> Seq.find (fun addr ->
                         let family = addr.Address.AddressFamily in
-                        family = AddressFamily.InterNetwork &&
-                        addr.PrefixLength = PREFIX_LEN)
+                        family = AddressFamily.InterNetwork)
+        let addrBytes = ip4Addr.Address.GetAddressBytes()
                                
         {
             Name = ni.Name;
-            Address = ip4Addr.Address.ToString()
+            DisplayAddress = ip4Addr.Address.ToString();
+            PrefixLength = ip4Addr.PrefixLength;
+            AddressValue = bigEndianIp4ByteArrayToInt addrBytes;
         })
 
 /// Display list of available adapters to scan
 let displayAdapters (adapters: AdapterInfo[]) =
-    Array.iteri<AdapterInfo> (fun i info -> 
-                    printfn "%d. %s (%s)" (i + 1) info.Name info.Address)
+    Array.iteri<AdapterInfo> 
+                (fun i info -> printfn "%d. %s (%s/%d)" (i + 1) 
+                                                        info.Name 
+                                                        info.DisplayAddress 
+                                                        info.PrefixLength)
                 adapters
+
+/// Get number of hosts in network with given info
+let getNumberOfHosts (adapter: AdapterInfo) : int =
+    1 <<< (32 - adapter.PrefixLength) - 1
 
 /// Ping adapter subnet range
 let pingAdapterSubnet (adapter: AdapterInfo): seq<string> =
-    let prefix = adapter.Address.Substring(0, adapter.Address.LastIndexOf('.'))
-    [1..NUM_ADDRESSES]
-    |> List.map (fun hostNum ->
+    Seq.init (getNumberOfHosts adapter)
+             (fun n -> intIp4ToBigEndianArray (adapter.AddressValue + n))
+    |> Seq.map (fun hostBytes ->
         async {
-            let hostIpAddr = sprintf "%s.%d" prefix hostNum in
+            let hostIpAddr = new IPAddress(hostBytes) in
             let pingTask = (new Ping()).SendPingAsync(hostIpAddr, PING_TIMEOUT)
             let! result = Async.AwaitTask(pingTask)
             return match result.Status with
@@ -54,10 +79,10 @@ let pingAdapterSubnet (adapter: AdapterInfo): seq<string> =
                     | _ -> None
         }) |> Async.Parallel |> Async.RunSynchronously
            |> Seq.filter (fun r -> r.IsSome)
-           |> Seq.map (fun s -> s.Value)
+           |> Seq.map (fun s -> s.Value.ToString())
 
 [<EntryPoint>]
-let main argv = 
+let main _ = 
     Console.WriteLine("Available network adapters:")
 
     let adapterInfos = getAdapters() in
