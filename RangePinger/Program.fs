@@ -101,10 +101,12 @@ let main _ =
                 Seq.iter (fun ip -> Console.WriteLine (ip : string)) availableIps
 
             Console.WriteLine("Done!")
+
+            Console.ReadKey() |> ignore
+            EXIT_NORMAL
         else
             Console.WriteLine("Incorrect adapter number!")
+            EXIT_INCORRECT_PARAM
     else
         Console.WriteLine("Incorrect input!")
-
-    Console.ReadKey() |> ignore
-    EXIT_NORMAL
+        EXIT_INCORRECT_PARAM
