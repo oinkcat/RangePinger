@@ -3,6 +3,17 @@ open System.Net
 open System.Net.NetworkInformation
 open System.Net.Sockets
 
+type Process = System.Diagnostics.Process
+
+/// Actions from command line params
+type CommandLineAction =
+    | Interactive
+    | Help
+    | ListAdapters
+    | AdapterByNumber of int
+    | AdapterByIp of string
+    | Incorrect
+
 /// Network adapter information
 type AdapterInfo = {
     Name: string;
@@ -14,7 +25,7 @@ type AdapterInfo = {
 let EXIT_NORMAL = 0
 let EXIT_INCORRECT_PARAM = 1
 
-let PING_TIMEOUT = 2000
+let PING_TIMEOUT = 5000
 
 /// Convert big-endian IP address values array to integer
 let bigEndianIp4ByteArrayToInt (ip4Bytes : byte[]) : int =
@@ -81,8 +92,14 @@ let pingAdapterSubnet (adapter: AdapterInfo): seq<string> =
            |> Seq.filter (fun r -> r.IsSome)
            |> Seq.map (fun s -> s.Value.ToString())
 
-[<EntryPoint>]
-let main _ = 
+/// Ping adapter's IP4 range and display results
+let pingAndDisplay (adapter: AdapterInfo) =
+    let availableIps = pingAdapterSubnet adapter in
+    Seq.iter (fun ip -> Console.WriteLine (ip : string)) availableIps
+
+/// Ask user for adapter and ping range
+let doInteractivePing () : int =
+
     Console.WriteLine("Available network adapters:")
 
     let adapterInfos = getAdapters() in
@@ -97,10 +114,9 @@ let main _ =
             let selectedAdapter = adapterInfos.[index]
             printfn "\nSelected: %s" selectedAdapter.Name
             
-            let availableIps = pingAdapterSubnet selectedAdapter in
-                Seq.iter (fun ip -> Console.WriteLine (ip : string)) availableIps
+            pingAndDisplay selectedAdapter
 
-            Console.WriteLine("Done!")
+            Console.WriteLine("Done! Press any key to exit...")
 
             Console.ReadKey() |> ignore
             EXIT_NORMAL
@@ -110,3 +126,82 @@ let main _ =
     else
         Console.WriteLine("Incorrect input!")
         EXIT_INCORRECT_PARAM
+
+/// Show program usage and exit
+let doShowHelp () : int =
+    let exeName = Process.GetCurrentProcess().ProcessName in
+    Console.WriteLine("Usage: {0} [(-l | -h | -a <num_or_ip>)]", exeName)
+
+    Console.WriteLine("\nParameters:")
+    Console.WriteLine("  -l\t\tList all available network adapters")
+    Console.WriteLine("  -h\t\tShow this message")
+    Console.WriteLine("  -a <num>\tPing range of adapter with number <num> in list")
+    Console.WriteLine("  -a <ip>\tPing range of adapter with given <ip> address")
+
+    Console.WriteLine("\nRun without parameters - interactive mode")
+
+    EXIT_NORMAL
+
+/// Display list of available network adapters and exit
+let doListAdapters () : int =
+    let adapterInfos = getAdapters() in 
+    if adapterInfos.Length > 0
+        then displayAdapters adapterInfos
+        else Console.WriteLine("No network adapters available!")
+
+    EXIT_NORMAL
+
+/// Ping range of n-th adapter
+let doPingByAdapterNumber (number: int) : int =
+    let listIndex = number - 1
+    let adapterInfos = getAdapters() in
+    if listIndex >= 0 && listIndex < adapterInfos.Length
+        then
+            pingAndDisplay adapterInfos.[listIndex]
+            EXIT_NORMAL
+        else
+            Console.WriteLine("Incorrect adapter number! See output with -l parameter")
+            EXIT_INCORRECT_PARAM
+
+let doPingByAdapterIp (ipPrefix: string) : int =
+    let adaptersWithPrefix =
+        getAdapters()
+        |> Array.filter (fun ai -> ai.DisplayAddress.StartsWith(ipPrefix))
+
+    if adaptersWithPrefix.Length > 0
+        then
+            pingAndDisplay adaptersWithPrefix.[0]
+            EXIT_NORMAL
+        else
+            Console.WriteLine("Incorrect adapter IP4 address!")
+            EXIT_INCORRECT_PARAM
+
+/// Parse command line for given action
+let getCommandLineAction (args: string[]) : CommandLineAction =
+    if args.Length > 0
+        then
+            match args.[0] with
+                | "-l" -> ListAdapters
+                | "-h" -> Help
+                | "-a" -> if args.Length = 2
+                            then
+                                let num = ref 0
+                                if Int32.TryParse(args.[1], num)
+                                    then AdapterByNumber !num
+                                    else AdapterByIp args.[1]
+                            else Incorrect
+                | _ -> Help
+
+        else Interactive
+
+[<EntryPoint>]
+let main (args: string[]) = 
+
+    match getCommandLineAction args with
+        | Interactive -> doInteractivePing()
+        | Help -> doShowHelp()
+        | ListAdapters -> doListAdapters()
+        | AdapterByNumber num -> doPingByAdapterNumber num
+        | AdapterByIp ip -> doPingByAdapterIp ip
+        | _ ->  Console.WriteLine("Invalid parameter!")
+                EXIT_INCORRECT_PARAM
